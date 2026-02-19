@@ -37,6 +37,20 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}
 
+    - name: Download MemProcFS Library
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: |
+        # 下载 MemProcFS 库文件
+        Invoke-WebRequest -Uri "https://github.com/ufrisk/MemProcFS/releases/latest/download/MemProcFS-Release.zip" -OutFile "MemProcFS.zip"
+        Expand-Archive -Path "MemProcFS.zip" -DestinationPath "."
+        # 复制所需的库文件到 MemProcFS 目录
+        Copy-Item -Path ".\MemProcFS\vmm.lib" -Destination "${{env.GITHUB_WORKSPACE}}/GTA5_DMA/MemProcFS/" -Force
+        Copy-Item -Path ".\MemProcFS\vmm.dll" -Destination "${{env.GITHUB_WORKSPACE}}/GTA5_DMA/MemProcFS/" -Force
+        Copy-Item -Path ".\MemProcFS\leechcore.dll" -Destination "${{env.GITHUB_WORKSPACE}}/GTA5_DMA/MemProcFS/" -Force
+        # 清理临时文件
+        Remove-Item -Path "MemProcFS.zip" -Force
+        Remove-Item -Path ".\MemProcFS" -Recurse -Force
+
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
