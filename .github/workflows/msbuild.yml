@@ -3,32 +3,46 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: MSBuild
+name: Build and Release
 
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: write
+  packages: write
 
 env:
   # Path to the solution file relative to the root of the project.
   SOLUTION_FILE_PATH: GTA5_DMA\GTA5_DMA.sln
 
   # Configuration type to build.
-  # You can convert this to a build matrix if you need coverage of multiple configuration types.
-  # `https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix`
   BUILD_CONFIGURATION: Release
-
-permissions:
-  contents: read
+  PLATFORM: x64
 
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get Version
+      id: get_version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "version=v$(date +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
+        fi
 
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.0.2
@@ -53,14 +67,50 @@ jobs:
 
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See `https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference`
-      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=x64 ${{env.SOLUTION_FILE_PATH}}
-    
+      run: msbuild.exe ${{env.SOLUTION_FILE_PATH}} /t:Build /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.PLATFORM}}
+
+    - name: Prepare Release Files
+      run: |
+        $BUILD_OUTPUT = "${{env.GITHUB_WORKSPACE}}/GTA5_DMA/x64/${{env.BUILD_CONFIGURATION}}/"
+        $RELEASE_DIR = "${{env.GITHUB_WORKSPACE}}/release/"
+        
+        # 创建发布目录
+        New-Item -Path $RELEASE_DIR -ItemType Directory -Force
+        
+        # 复制主要可执行文件
+        Copy-Item -Path "$BUILD_OUTPUT/GTA5_DMA.exe" -Destination $RELEASE_DIR -Force
+        
+        # 复制必要的 DLL 文件
+        Copy-Item -Path "$BUILD_OUTPUT/vmm.dll" -Destination $RELEASE_DIR -Force
+        Copy-Item -Path "$BUILD_OUTPUT/leechcore.dll" -Destination $RELEASE_DIR -Force
+        
+        # 复制其他可能需要的文件
+        Get-ChildItem -Path $BUILD_OUTPUT -Filter "*.dll" | Copy-Item -Destination $RELEASE_DIR -Force
+        
+        # 复制 README 文件
+        Copy-Item -Path "${{env.GITHUB_WORKSPACE}}/README.md" -Destination $RELEASE_DIR -Force
+        Copy-Item -Path "${{env.GITHUB_WORKSPACE}}/LICENSE" -Destination $RELEASE_DIR -Force
+
     - name: Upload Build Artifacts
-      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: GTA5_DMA-Build-${{env.BUILD_CONFIGURATION}}
-        path: ${{env.GITHUB_WORKSPACE}}/GTA5_DMA/x64/${{env.BUILD_CONFIGURATION}}/
-        retention-days: 7
+        name: GTA5_DMA-Build-${{env.BUILD_CONFIGURATION}}-${{ steps.get_version.outputs.version }}
+        path: ${{env.GITHUB_WORKSPACE}}/release/
+        retention-days: 30
+
+    - name: Upload to GitHub Releases
+      if: github.ref_type == 'tag'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        name: Release ${{ github.ref }}
+        body: |
+          ## What's Changed
+          
+          - Auto-generated release
+          - Build: ${{ github.sha }}
+          - Date: ${{ steps.get_version.outputs.version }}
+        files: ${{env.GITHUB_WORKSPACE}}/release/*
+        draft: false
+        prerelease: false
+
