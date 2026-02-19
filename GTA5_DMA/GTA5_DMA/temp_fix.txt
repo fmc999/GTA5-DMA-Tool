@@ -1,0 +1,1 @@
+(BYTE*)¤tAcceleration, sizeof(float), &BytesRead, VMMDLL_FLAG_NOCACHE);
